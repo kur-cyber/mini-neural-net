@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Мини-нейросеть (XOR)</title>
+<style>
+  body {
+    font-family: system-ui, sans-serif;
+    background: #0f172a;
+    color: #e2e8f0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px;
+    margin: 0;
+  }
+  h1 { font-size: 1.4rem; margin-bottom: 4px; }
+  p.sub { color: #94a3b8; margin-top: 0; font-size: 0.9rem; }
+  canvas { border-radius: 8px; background: #000; }
+  .controls { display: flex; gap: 10px; margin-top: 16px; }
+  button {
+    padding: 10px 20px;
+    font-size: 1rem;
+    border: none;
+    border-radius: 8px;
+    background: #38bdf8;
+    color: #0f172a;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button:hover { background: #7dd3fc; }
+  button.secondary { background: #334155; color: #e2e8f0; }
+  button.secondary:hover { background: #475569; }
+  #loss { margin-top: 12px; font-family: monospace; }
+  #preds { margin-top: 6px; font-family: monospace; font-size: 0.85rem; color: #94a3b8; text-align: center; }
+</style>
+</head>
+<body>
+  <h1>Мини-нейросеть учит XOR</h1>
+  <p class="sub">Нажми «Тренировать» — сеть сама подберёт веса методом обратного распространения</p>
+  <canvas id="canvas" width="300" height="300"></canvas>
+  <div class="controls">
+    <button id="train">Тренировать</button>
+    <button id="reset" class="secondary">Сброс</button>
+  </div>
+  <div id="loss">Потери: —</div>
+  <div id="preds"></div>
+
+<script>
+// ===== Простая нейросеть 2 → 4 → 1 с сигмоидой =====
+class NeuralNet {
+  constructor() {
+    this.w1 = [
+      [Math.random()*2-1, Math.random()*2-1, Math.random()*2-1, Math.random()*2-1],
+      [Math.random()*2-1, Math.random()*2-1, Math.random()*2-1, Math.random()*2-1],
+    ];
+    this.b1 = [Math.random()*2-1, Math.random()*2-1, Math.random()*2-1, Math.random()*2-1];
+    this.w2 = [Math.random()*2-1, Math.random()*2-1, Math.random()*2-1, Math.random()*2-1];
+    this.b2 = Math.random()*2-1;
+    this.lr = 0.5; // скорость обучения
+  }
+
+  sigmoid(x) { return 1 / (1 + Math.exp(-x)); }
+
+  forward(x1, x2) {
+    const h = [];
+    for (let j = 0; j < 4; j++) {
+      const z = this.w1[0][j]*x1 + this.w1[1][j]*x2 + this.b1[j];
+      h.push(this.sigmoid(z));
+    }
+    let zOut = this.b2;
+    for (let j = 0; j < 4; j++) zOut += h[j] * this.w2[j];
+    return { h, out: this.sigmoid(zOut) };
+  }
+
+  train(x1, x2, target) {
+    const { h, out } = this.forward(x1, x2);
+    const dOut = (out - target) * out * (1 - out); // градиент на выходе
+    const oldW2 = [...this.w2];
+
+    for (let j = 0; j < 4; j++) this.w2[j] -= this.lr * dOut * h[j];
+    this.b2 -= this.lr * dOut;
+
+    for (let j = 0; j < 4; j++) {
+      const dH = dOut * oldW2[j] * h[j] * (1 - h[j]);
+      this.w1[0][j] -= this.lr * dH * x1;
+      this.w1[1][j] -= this.lr * dH * x2;
+      this.b1[j]   -= this.lr * dH;
+    }
+    return 0.5 * (out - target) ** 2;
+  }
+}
+
+let net = new NeuralNet();
+const canvas = document.getElementById('canvas');
+const ctx    = canvas.getContext('2d');
+const lossEl = document.getElementById('loss');
+const predsEl = document.getElementById('preds');
+
+// Обучающие данные XOR: [x1, x2, ожидаемый выход]
+const data = [
+  [0, 0, 0],
+  [0, 1, 1],
+  [1, 0, 1],
+  [1, 1, 0],
+];
+
+// Рисуем карту решений: цвет = предсказание сети
+function draw() {
+  const W = canvas.width, H = canvas.height;
+  const img = ctx.createImageData(W, H);
+  for (let py = 0; py < H; py++) {
+    for (let px = 0; px < W; px++) {
+      const x1 = px / W;
+      const x2 = 1 - py / H;
+      const { out } = net.forward(x1, x2);
+      const i = (py * W + px) * 4;
+      img.data[i]     = Math.floor(255 * (1 - out)); // красный = 0
+      img.data[i + 1] = Math.floor(255 * out);       // зелёный = 1
+      img.data[i + 2] = 40;
+      img.data[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+
+  // Накладываем 4 обучающие точки
+  for (const [x1, x2, y] of data) {
+    const px = x1 * W;
+    const py = (1 - x2) * H;
+    ctx.beginPath();
+    ctx.arc(px, py, 6, 0, Math.PI * 2);
+    ctx.fillStyle = y === 1 ? '#00ff88' : '#ff3355';
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#fff';
+    ctx.stroke();
+  }
+}
+
+function showPreds() {
+  predsEl.textContent = data.map(([x1, x2]) => {
+    const { out } = net.forward(x1, x2);
+    return `${x1} XOR ${x2} → ${out.toFixed(3)}`;
+  }).join('   |   ');
+}
+
+let training = false;
+
+document.getElementById('train').addEventListener('click', () => {
+  if (training) return;
+  training = true;
+  const totalEpochs = 3000;
+  const perFrame    = 30;
+  let epochs = 0;
+
+  function frame() {
+    let loss = 0;
+    for (let e = 0; e < perFrame && epochs < totalEpochs; e++, epochs++) {
+      for (const [x1, x2, y] of data) loss += net.train(x1, x2, y);
+    }
+    loss /= perFrame * data.length;
+    lossEl.textContent = `Потери: ${loss.toFixed(5)}   (эпоха ${epochs}/${totalEpochs})`;
+    draw();
+
+    if (epochs < totalEpochs) {
+      requestAnimationFrame(frame);
+    } else {
+      training = false;
+      lossEl.textContent = `Готово! Потери: ${loss.toFixed(5)}`;
+      showPreds();
+    }
+  }
+  frame();
+});
+
+document.getElementById('reset').addEventListener('click', () => {
+  net = new NeuralNet();
+  lossEl.textContent = 'Потери: —';
+  predsEl.textContent = '';
+  draw();
+});
+
+// Стартовый рендер
+draw();
+</script>
+</body>
+</html>
