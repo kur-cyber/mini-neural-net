@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AI-ассистент (Без ключа)</title>
+<title>AI-Программист</title>
 <style>
   * { box-sizing: border-box; }
   body {
@@ -21,13 +21,14 @@
     display: flex; flex-direction: column; gap: 12px;
   }
   .msg {
-    max-width: 85%; padding: 10px 14px; border-radius: 12px;
+    max-width: 90%; padding: 10px 14px; border-radius: 12px;
     line-height: 1.5; white-space: pre-wrap; word-wrap: break-word;
+    font-family: monospace; font-size: 0.95rem;
   }
-  .msg.user { align-self: flex-end; background: #2563eb; color: #fff; }
-  .msg.bot  { align-self: flex-start; background: #1e293b; border: 1px solid #334155; }
-  .msg.error{ align-self: center; background: #7f1d1d; color: #fecaca; font-size: .85rem; text-align: center; }
-  .msg.typing { color: #64748b; font-style: italic; }
+  .msg.user { align-self: flex-end; background: #2563eb; color: #fff; font-family: inherit; }
+  .msg.bot  { align-self: flex-start; background: #1e293b; border: 1px solid #334155; width: 90%; }
+  .msg.error{ align-self: center; background: #7f1d1d; color: #fecaca; font-size: .85rem; text-align: center; font-family: inherit; }
+  .msg.typing { color: #64748b; font-style: italic; font-family: inherit; }
   form {
     display: flex; gap: 8px; padding: 12px 16px;
     background: #1e293b; border-top: 1px solid #334155;
@@ -35,7 +36,7 @@
   form textarea {
     flex: 1; resize: none; padding: 10px 12px; border-radius: 8px;
     border: 1px solid #334155; background: #0f172a; color: #e2e8f0;
-    font-size: 1rem; font-family: inherit; min-height: 44px; max-height: 120px;
+    font-size: 1rem; font-family: monospace; min-height: 60px; max-height: 200px;
   }
   form button {
     padding: 0 20px; border: none; border-radius: 8px;
@@ -48,16 +49,17 @@
 <body>
 
 <header>
-  <h1>🤖 AI-ассистент (Работает без ключа)</h1>
+  <h1>🤖 AI-Программист (Python / C++)</h1>
 </header>
 
 <div id="messages">
-  <div class="msg bot">Привет! Школьный фильтр обойден 🛡️ Я работаю через открытые бесплатные шлюзы без ключей. Просто напиши свой вопрос, и я решу задачу пошагово.</div>
+  <div class="msg bot">Привет! Я настроен на решение задач по Python и C++. 
+Скидывай условие задачи, и я напишу решение. Если нужно "ТОЛЬКО функцию" — я напишу только функцию без лишнего кода.</div>
 </div>
 
 <form id="chat-form">
-  <textarea id="input" placeholder="Задай вопрос... (Enter — отправить)" rows="1"></textarea>
-  <button type="submit" id="send">Отправить</button>
+  <textarea id="input" placeholder="Вставь сюда условие задачи... (Enter — отправить)" rows="3"></textarea>
+  <button type="submit" id="send">Решить</button>
 </form>
 
 <script>
@@ -66,22 +68,17 @@ const form       = document.getElementById('chat-form');
 const input      = document.getElementById('input');
 const sendBtn    = document.getElementById('send');
 
-// Список бесплатных публичных шлюзов (OpenAI-совместимые)
-const GATEWAYS = [
-  {
-    url: 'https://keylessai.thryx.workers.dev/v1/chat/completions',
-    model: 'gpt-4o',
-    headers: {}
-  },
-  {
-    url: 'https://text.pollinations.ai/openai',
-    model: 'openai',
-    headers: {}
+// Публичный бесплатный шлюз (работает без ключа)
+const API_URL = 'https://text.pollinations.ai/openai';
+const MODEL = 'openai'; 
+
+let history = [
+  { 
+    role: 'system', 
+    content: 'Ты — экспертный программист. Твоя задача — решать задачи по Python и C++. Отвечай кратко. Если в задаче просят "написать ТОЛЬКО функцию", твой ответ должен содержать только код функции, без тестов, без вызовов, без `if __name__ == "__main__"`, без markdown-разметки (без ```python). Просто чистый код. Если нужно полное решение — пиши его.' 
   }
 ];
-
-let history = [];
-let busy    = false;
+let busy = false;
 
 function addMsg(role, text) {
   const div = document.createElement('div');
@@ -94,7 +91,7 @@ function addMsg(role, text) {
 
 input.addEventListener('input', () => {
   input.style.height = 'auto';
-  input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+  input.style.height = Math.min(input.scrollHeight, 200) + 'px';
 });
 input.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); form.requestSubmit(); }
@@ -112,54 +109,40 @@ form.addEventListener('submit', async (e) => {
   history.push({ role: 'user', content: text });
 
   busy = true; sendBtn.disabled = true;
-  const typing = addMsg('typing', 'думаю...');
+  const typing = addMsg('typing', 'пишу код...');
 
-  let success = false;
+  try {
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: MODEL,
+        messages: history,
+        temperature: 0.2, // Низкая температура для точного кода
+      }),
+    });
 
-  // Пробуем шлюзы по очереди, пока один не ответит
-  for (const gateway of GATEWAYS) {
-    try {
-      const res = await fetch(gateway.url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...gateway.headers
-        },
-        body: JSON.stringify({
-          model: gateway.model,
-          messages: [
-            { role: 'system', content: 'Ты полезный ассистент. Отвечай по-русски, по делу. Задачи решай пошагово.' },
-            ...history,
-          ],
-          temperature: 0.7,
-        }),
-      });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    let answer = data.choices?.[0]?.message?.content;
 
-      const data = await res.json();
-      const answer = data.choices?.[0]?.message?.content;
+    if (!answer) throw new Error('Пустой ответ от сервера');
 
-      if (answer) {
-        typing.remove();
-        addMsg('bot', answer);
-        history.push({ role: 'assistant', content: answer });
-        success = true;
-        break; // Успех — выходим из цикла
-      }
-    } catch (err) {
-      // Если этот шлюз упал — пробуем следующий
-      console.warn(`Шлюз ${gateway.url} не ответил:`, err);
-    }
-  }
+    // Очищаем от маркдауна, если ИИ его добавил
+    answer = answer.replace(/```(python|cpp|c\+\+|javascript)?\n?/g, '').replace(/```/g, '');
 
-  if (!success) {
     typing.remove();
-    addMsg('error', 'Не удалось связаться с AI через доступные шлюзы. Возможно, школа блокирует и их. Попробуй открыть сайт дома или через мобильный интернет.');
-    history.pop();
-  }
+    addMsg('bot', answer);
+    history.push({ role: 'assistant', content: answer });
 
-  busy = false; sendBtn.disabled = false; input.focus();
+  } catch (err) {
+    typing.remove();
+    addMsg('error', 'Ошибка сети: ' + err.message + '. Если школа блокирует, попробуй дома или с телефона.');
+    history.pop();
+  } finally {
+    busy = false; sendBtn.disabled = false; input.focus();
+  }
 });
 </script>
 
